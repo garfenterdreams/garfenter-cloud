@@ -1,0 +1,46 @@
+# Garfenter Cloud Deployment - Terraform Variables Template
+# Copy this file to terraform.tfvars and fill in your values
+# DO NOT COMMIT terraform.tfvars to version control
+
+# ============================================
+# AWS Credentials
+# ============================================
+aws_access_key = "YOUR_AWS_ACCESS_KEY_ID"
+aws_secret_key = "YOUR_AWS_SECRET_ACCESS_KEY"
+aws_region     = "us-east-1"
+
+# ============================================
+# Cloudflare Credentials
+# ============================================
+cloudflare_api_token  = "YOUR_CLOUDFLARE_API_TOKEN"
+cloudflare_account_id = "YOUR_CLOUDFLARE_ACCOUNT_ID"
+
+# ============================================
+# Infrastructure Settings
+# ============================================
+environment          = "demo"
+instance_type        = "t3.micro"  # 1GB RAM - runs 1 product at a time
+spot_max_price       = "0.02"
+root_volume_size     = 50
+monthly_budget_limit = "50"
+
+# ============================================
+# SSH and Network Access
+# ============================================
+ssh_key_name = "your-ssh-key-name"
+admin_ip     = "YOUR_IP/32"  # Restrict SSH access to your IP only
+
+# ============================================
+# Domain and Alerts
+# ============================================
+domain_name = "your-domain.com"
+alert_email = "your-email@example.com"
+
+# ============================================
+# Database and API Credentials
+# Generate secure passwords with: openssl rand -base64 24
+# ============================================
+postgres_password       = "GENERATE_SECURE_PASSWORD"
+mysql_password          = "GENERATE_SECURE_PASSWORD"
+keycloak_admin_password = "GENERATE_SECURE_PASSWORD"
+jwt_secret              = "GENERATE_SECURE_SECRET"

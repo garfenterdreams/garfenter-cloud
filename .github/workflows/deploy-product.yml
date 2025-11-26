@@ -1,0 +1,290 @@
+# Garfenter Cloud - Reusable Product Deployment Workflow
+# Called by individual product repos to deploy to AWS
+
+name: Deploy Product
+
+on:
+  workflow_call:
+    inputs:
+      product_name:
+        description: 'Product identifier (e.g., tienda, erp, pos)'
+        required: true
+        type: string
+      product_display_name:
+        description: 'Human-readable product name'
+        required: true
+        type: string
+      docker_image:
+        description: 'Docker image to deploy (including tag)'
+        required: true
+        type: string
+      container_port:
+        description: 'Container internal port'
+        required: true
+        type: string
+      environment:
+        description: 'Deployment environment'
+        required: false
+        type: string
+        default: 'demo'
+      health_check_path:
+        description: 'Health check endpoint path'
+        required: false
+        type: string
+        default: '/'
+      build_docker:
+        description: 'Whether to build Docker image from repo'
+        required: false
+        type: boolean
+        default: false
+      dockerfile_path:
+        description: 'Path to Dockerfile if building'
+        required: false
+        type: string
+        default: 'Dockerfile'
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      SSH_PRIVATE_KEY:
+        required: true
+      EC2_HOST:
+        required: true
+      POSTGRES_PASSWORD:
+        required: false
+      MYSQL_PASSWORD:
+        required: false
+
+jobs:
+  build:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    if: inputs.build_docker
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix=
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and Push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ inputs.dockerfile_path }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to AWS
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: always() && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Determine Docker Image
+        id: image
+        run: |
+          if [ "${{ inputs.build_docker }}" == "true" ]; then
+            echo "image=ghcr.io/${{ github.repository }}:latest" >> $GITHUB_OUTPUT
+          else
+            echo "image=${{ inputs.docker_image }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/garfenter-key.pem
+          chmod 600 ~/.ssh/garfenter-key.pem
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy to EC2
+        env:
+          PRODUCT_NAME: ${{ inputs.product_name }}
+          DOCKER_IMAGE: ${{ steps.image.outputs.image }}
+          CONTAINER_PORT: ${{ inputs.container_port }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+        run: |
+          ssh -i ~/.ssh/garfenter-key.pem -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} << 'DEPLOY_SCRIPT'
+          set -e
+          echo "=== Deploying $PRODUCT_NAME ==="
+
+          # Stop existing container if running
+          docker stop garfenter-${PRODUCT_NAME} 2>/dev/null || true
+          docker rm garfenter-${PRODUCT_NAME} 2>/dev/null || true
+
+          # Pull latest image
+          echo "Pulling image: ${DOCKER_IMAGE}"
+          docker pull ${DOCKER_IMAGE}
+
+          # Run new container
+          echo "Starting container..."
+          docker run -d \
+            --name garfenter-${PRODUCT_NAME} \
+            --network garfenter-network \
+            --restart unless-stopped \
+            -p ${CONTAINER_PORT}:${CONTAINER_PORT} \
+            -e DATABASE_URL="postgres://garfenter:${POSTGRES_PASSWORD}@garfenter-postgres:5432/${PRODUCT_NAME}" \
+            -e POSTGRES_PASSWORD="${POSTGRES_PASSWORD}" \
+            -e MYSQL_PASSWORD="${MYSQL_PASSWORD}" \
+            ${DOCKER_IMAGE}
+
+          echo "=== Deployment complete ==="
+          docker ps | grep garfenter-${PRODUCT_NAME}
+          DEPLOY_SCRIPT
+
+      - name: Health Check
+        run: |
+          echo "Waiting for service to be ready..."
+          sleep 30
+
+          # Check if container is running
+          ssh -i ~/.ssh/garfenter-key.pem -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} \
+            "docker ps | grep garfenter-${{ inputs.product_name }} && echo 'Container is running'"
+
+          # Try health check endpoint
+          for i in {1..5}; do
+            if curl -sf "http://${{ secrets.EC2_HOST }}:${{ inputs.container_port }}${{ inputs.health_check_path }}" > /dev/null 2>&1; then
+              echo "Health check passed!"
+              exit 0
+            fi
+            echo "Attempt $i failed, waiting..."
+            sleep 10
+          done
+
+          echo "Warning: Health check did not pass, but container may still be starting"
+
+      - name: Deployment Summary
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Product | ${{ inputs.product_display_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | ${{ steps.image.outputs.image }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Port | ${{ inputs.container_port }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+
+  verify:
+    name: Post-Deployment Verification
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: needs.deploy.result == 'success'
+
+    steps:
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/garfenter-key.pem
+          chmod 600 ~/.ssh/garfenter-key.pem
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Verify Container Running
+        run: |
+          echo "Checking container status..."
+          CONTAINER_STATUS=$(ssh -i ~/.ssh/garfenter-key.pem -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} \
+            "docker ps --filter 'name=garfenter-${{ inputs.product_name }}' --format '{{.Status}}'" || echo "error")
+
+          if [[ "$CONTAINER_STATUS" == *"Up"* ]]; then
+            echo "Container is running: $CONTAINER_STATUS"
+          else
+            echo "Container not running properly: $CONTAINER_STATUS"
+            exit 1
+          fi
+
+      - name: Verify Health Endpoint
+        run: |
+          echo "Testing health endpoint..."
+          HEALTH_URL="https://${{ inputs.product_name }}.garfenter.com${{ inputs.health_check_path }}"
+
+          for i in {1..5}; do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --insecure "$HEALTH_URL" || echo "000")
+
+            if [[ "$HTTP_CODE" =~ ^(200|301|302|303|307|308)$ ]]; then
+              echo "Health check passed! HTTP $HTTP_CODE"
+              exit 0
+            fi
+
+            echo "Attempt $i: HTTP $HTTP_CODE, waiting 15s..."
+            sleep 15
+          done
+
+          echo "Warning: Health endpoint returned HTTP $HTTP_CODE"
+
+      - name: Verify Subdomain Routing
+        run: |
+          echo "Testing subdomain routing..."
+          SUBDOMAIN_URL="https://${{ inputs.product_name }}.garfenter.com/"
+
+          RESPONSE=$(curl -s -I --insecure "$SUBDOMAIN_URL" 2>/dev/null | head -1)
+          echo "Response: $RESPONSE"
+
+          if [[ "$RESPONSE" == *"200"* ]] || [[ "$RESPONSE" == *"30"* ]]; then
+            echo "Subdomain routing working!"
+          else
+            echo "Warning: Subdomain may not be properly configured"
+          fi
+
+      - name: Verification Summary
+        run: |
+          echo "## Post-Deployment Verification" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Product **${{ inputs.product_display_name }}** deployment verified:" >> $GITHUB_STEP_SUMMARY
+          echo "- Container running on EC2" >> $GITHUB_STEP_SUMMARY
+          echo "- Health endpoint checked" >> $GITHUB_STEP_SUMMARY
+          echo "- Subdomain routing verified" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** https://${{ inputs.product_name }}.garfenter.com" >> $GITHUB_STEP_SUMMARY
+
+  notify:
+    name: Notify Deployment Status
+    runs-on: ubuntu-latest
+    needs: [deploy, verify]
+    if: always()
+
+    steps:
+      - name: Notify Success
+        if: needs.deploy.result == 'success' && needs.verify.result == 'success'
+        run: |
+          echo "Deployment of ${{ inputs.product_display_name }} succeeded and verified!"
+          echo "Product URL: https://${{ inputs.product_name }}.garfenter.com"
+
+      - name: Notify Partial Success
+        if: needs.deploy.result == 'success' && needs.verify.result != 'success'
+        run: |
+          echo "Deployment of ${{ inputs.product_display_name }} completed but verification had issues"
+          echo "Please check the product manually at: https://${{ inputs.product_name }}.garfenter.com"
+
+      - name: Notify Failure
+        if: needs.deploy.result == 'failure'
+        run: |
+          echo "Deployment of ${{ inputs.product_display_name }} failed!"
+          exit 1

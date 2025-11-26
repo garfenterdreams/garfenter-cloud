@@ -1,0 +1,117 @@
+# Garfenter Enterprise Suite (Group B)
+# Odoo, Twenty, Condo, farmOS
+# ~2GB RAM total
+
+version: '3.8'
+
+services:
+  # ============================================
+  # Odoo - ERP (Garfenter ERP)
+  # ============================================
+  garfenter-erp:
+    image: odoo:17
+    container_name: garfenter-erp
+    restart: unless-stopped
+    environment:
+      HOST: garfenter-postgres
+      PORT: 5432
+      USER: garfenter
+      PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE: garfenter_erp
+    ports:
+      - "8069:8069"
+    volumes:
+      - odoo-data:/var/lib/odoo
+      - odoo-addons:/mnt/extra-addons
+    networks:
+      - garfenter-network
+    depends_on:
+      - garfenter-postgres
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ============================================
+  # Twenty - CRM (Garfenter Clientes)
+  # ============================================
+  garfenter-clientes:
+    image: twentycrm/twenty:latest
+    container_name: garfenter-clientes
+    restart: unless-stopped
+    environment:
+      PG_DATABASE_URL: postgresql://garfenter:${POSTGRES_PASSWORD}@garfenter-postgres:5432/garfenter_clientes
+      REDIS_URL: redis://garfenter-redis:6379/2
+      FRONT_BASE_URL: http://localhost:3001
+      SERVER_URL: http://localhost:3001
+      ACCESS_TOKEN_SECRET: ${JWT_SECRET}
+      REFRESH_TOKEN_SECRET: ${CRYPTO_SECRET}
+    ports:
+      - "3001:3000"
+    networks:
+      - garfenter-network
+    depends_on:
+      - garfenter-postgres
+      - garfenter-redis
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ============================================
+  # Condo - Real Estate (Garfenter Inmuebles)
+  # ============================================
+  garfenter-inmuebles:
+    image: condo-app/condo:latest
+    container_name: garfenter-inmuebles
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://garfenter:${POSTGRES_PASSWORD}@garfenter-postgres:5432/garfenter_inmuebles
+      REDIS_URL: redis://garfenter-redis:6379/3
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "3002:3000"
+    networks:
+      - garfenter-network
+    depends_on:
+      - garfenter-postgres
+      - garfenter-redis
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  # ============================================
+  # farmOS - Agriculture (Garfenter Campo)
+  # ============================================
+  garfenter-campo:
+    image: farmos/farmos:3.x
+    container_name: garfenter-campo
+    restart: unless-stopped
+    environment:
+      FARMOS_DB_HOST: garfenter-postgres
+      FARMOS_DB_PORT: 5432
+      FARMOS_DB_NAME: garfenter_campo
+      FARMOS_DB_USER: garfenter
+      FARMOS_DB_PASS: ${POSTGRES_PASSWORD}
+    ports:
+      - "8083:80"
+    volumes:
+      - farmos-data:/opt/drupal/web/sites/default/files
+    networks:
+      - garfenter-network
+    depends_on:
+      - garfenter-postgres
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+networks:
+  garfenter-network:
+    external: true
+
+volumes:
+  odoo-data:
+  odoo-addons:
+  farmos-data:

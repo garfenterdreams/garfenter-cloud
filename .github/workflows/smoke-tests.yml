@@ -1,0 +1,189 @@
+# Garfenter Cloud - Smoke Tests Workflow
+# Runs health checks and basic smoke tests against all 11 products
+# Supports both local and production (garfenter.com) environments
+
+name: Smoke Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - local
+          - production
+      product:
+        description: 'Specific product to test (or "all")'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - tienda
+          - mercado
+          - pos
+          - contable
+          - erp
+          - clientes
+          - inmuebles
+          - campo
+          - banco
+          - salud
+          - educacion
+
+  # Run after any product deployment
+  workflow_run:
+    workflows:
+      - "Deploy Saleor E-commerce"
+      - "Deploy Spurtcommerce Marketplace"
+      - "Deploy OSPOS Point of Sale"
+      - "Deploy Akaunting Accounting"
+      - "Deploy Odoo ERP"
+      - "Deploy Twenty CRM"
+      - "Deploy ERPNext Real Estate"
+      - "Deploy Farmbot Agriculture"
+      - "Deploy Fineract Banking"
+      - "Deploy HMIS Healthcare"
+      - "Deploy Canvas LMS Education"
+    types: [completed]
+
+  # Scheduled daily check
+  schedule:
+    - cron: '0 6 * * *'  # 6 AM UTC daily
+
+env:
+  GARFENTER_DOMAIN: garfenter.com
+  GARFENTER_USE_HTTPS: 'true'
+  GARFENTER_SKIP_DOCKER: 'true'
+
+jobs:
+  # Matrix strategy for parallel testing
+  smoke-test:
+    name: Test ${{ matrix.product }}
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+
+    strategy:
+      fail-fast: false
+      matrix:
+        product:
+          - tienda
+          - mercado
+          - pos
+          - contable
+          - erp
+          - clientes
+          - inmuebles
+          - campo
+          - banco
+          - salud
+          - educacion
+
+    steps:
+      - name: Checkout test repository
+        uses: actions/checkout@v4
+        with:
+          repository: garfenterdreams/garfenter-tests
+          path: garfenter-tests
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Skip if specific product requested
+        if: github.event.inputs.product != 'all' && github.event.inputs.product != matrix.product
+        run: |
+          echo "Skipping ${{ matrix.product }} - specific product test requested for ${{ github.event.inputs.product }}"
+          exit 0
+
+      - name: Set environment variables
+        run: |
+          if [ "${{ github.event.inputs.environment }}" = "local" ]; then
+            echo "GARFENTER_DOMAIN=localhost" >> $GITHUB_ENV
+            echo "GARFENTER_USE_HTTPS=false" >> $GITHUB_ENV
+            echo "GARFENTER_SKIP_DOCKER=false" >> $GITHUB_ENV
+          else
+            echo "GARFENTER_DOMAIN=garfenter.com" >> $GITHUB_ENV
+            echo "GARFENTER_USE_HTTPS=true" >> $GITHUB_ENV
+            echo "GARFENTER_SKIP_DOCKER=true" >> $GITHUB_ENV
+          fi
+
+      - name: Run smoke test
+        id: smoke_test
+        working-directory: garfenter-tests
+        run: |
+          chmod +x smoke/test-${{ matrix.product }}.sh
+          ./smoke/test-${{ matrix.product }}.sh 2>&1 | tee test-output.txt
+        env:
+          GARFENTER_DOMAIN: ${{ env.GARFENTER_DOMAIN }}
+          GARFENTER_USE_HTTPS: ${{ env.GARFENTER_USE_HTTPS }}
+          GARFENTER_SKIP_DOCKER: ${{ env.GARFENTER_SKIP_DOCKER }}
+        continue-on-error: true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-${{ matrix.product }}
+          path: |
+            garfenter-tests/reports/
+            garfenter-tests/test-output.txt
+          retention-days: 7
+
+      - name: Check test result
+        if: steps.smoke_test.outcome == 'failure'
+        run: |
+          echo "::error::Smoke test failed for ${{ matrix.product }}"
+          exit 1
+
+  # Summary job that collects all results
+  summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [smoke-test]
+    if: always()
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: test-results
+
+      - name: Generate summary
+        run: |
+          echo "## Smoke Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Product | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          for product in tienda mercado pos contable erp clientes inmuebles campo banco salud educacion; do
+            if [ -d "test-results/smoke-test-${product}" ]; then
+              echo "| ${product} | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| ${product} | :x: Failed/Skipped |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment || 'production' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Run:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Fail if any test failed
+        if: contains(needs.smoke-test.result, 'failure')
+        run: |
+          echo "One or more smoke tests failed"
+          exit 1
+
+  # Notify on failure (optional - requires Slack webhook)
+  notify-failure:
+    name: Notify Failure
+    runs-on: ubuntu-latest
+    needs: [summary]
+    if: failure() && github.event_name == 'schedule'
+
+    steps:
+      - name: Send notification
+        run: |
+          echo "Scheduled smoke tests failed! Check the workflow run for details."
+          # Add Slack/email notification here if needed

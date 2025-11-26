@@ -1,0 +1,75 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: garfenter-postgres
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_USER: garfenter
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: garfenter
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+      - ./init-postgres.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks: [garfenter-network]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U garfenter"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql:
+    image: mysql:8.0
+    container_name: garfenter-mysql
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password
+    env_file: .env
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_USER: garfenter
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+      - ./init-mysql.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks: [garfenter-network]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: garfenter-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    networks: [garfenter-network]
+
+  nginx:
+    image: nginx:alpine
+    container_name: garfenter-nginx
+    restart: unless-stopped
+    ports: ["80:80"]
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./www:/var/www/html:ro
+    networks: [garfenter-network]
+    depends_on: [postgres, mysql]
+
+  startup-api:
+    image: python:3.11-alpine
+    container_name: garfenter-startup
+    restart: unless-stopped
+    working_dir: /app
+    command: sh -c "pip install --no-cache-dir flask docker && python api.py"
+    env_file: .env
+    volumes:
+      - ./startup:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [garfenter-network]
+
+networks:
+  garfenter-network:
+    driver: bridge
+    name: garfenter-network

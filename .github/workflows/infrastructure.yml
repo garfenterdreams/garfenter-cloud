@@ -1,0 +1,134 @@
+# Garfenter Cloud - Infrastructure Deployment
+# Deploys/updates AWS infrastructure using Terraform
+
+name: Deploy Infrastructure
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/infrastructure.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Terraform action'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+
+env:
+  TF_VERSION: '1.6.0'
+  AWS_REGION: us-east-1
+
+jobs:
+  terraform:
+    name: Terraform ${{ github.event.inputs.action || 'plan' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Create tfvars from secrets
+        run: |
+          cat > terraform.tfvars << EOF
+          aws_access_key     = "${{ secrets.AWS_ACCESS_KEY_ID }}"
+          aws_secret_key     = "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+          aws_region         = "${{ env.AWS_REGION }}"
+          cloudflare_api_token = "${{ secrets.CLOUDFLARE_API_TOKEN }}"
+          cloudflare_account_id = "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
+          domain_name        = "${{ vars.DOMAIN_NAME }}"
+          ssh_key_name       = "${{ vars.SSH_KEY_NAME }}"
+          admin_ip           = "${{ vars.ADMIN_IP }}"
+          postgres_password  = "${{ secrets.POSTGRES_PASSWORD }}"
+          mysql_password     = "${{ secrets.MYSQL_PASSWORD }}"
+          keycloak_admin_password = "${{ secrets.KEYCLOAK_ADMIN_PASSWORD }}"
+          alert_email        = "${{ vars.ALERT_EMAIL }}"
+          environment        = "${{ vars.ENVIRONMENT }}"
+          instance_type      = "${{ vars.INSTANCE_TYPE }}"
+          EOF
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Format Check
+        run: terraform fmt -check
+        continue-on-error: true
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan -no-color -out=tfplan 2>&1 | tee plan.txt
+          echo "plan_output<<EOF" >> $GITHUB_OUTPUT
+          cat plan.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Upload Plan Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: terraform/tfplan
+
+      - name: Comment PR with Plan
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `#### Terraform Plan
+            \`\`\`
+            ${{ steps.plan.outputs.plan_output }}
+            \`\`\`
+            *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+      - name: Terraform Apply
+        if: |
+          (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
+        run: terraform apply -auto-approve tfplan
+
+      - name: Terraform Destroy
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+        run: terraform destroy -auto-approve
+
+      - name: Output Summary
+        if: success()
+        run: |
+          echo "## Infrastructure Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Output | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          terraform output -json | jq -r 'to_entries[] | "| \(.key) | \(.value.value) |"' >> $GITHUB_STEP_SUMMARY

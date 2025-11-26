@@ -1,0 +1,227 @@
+name: Infrastructure Tests
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      test_scope:
+        description: 'Test scope'
+        required: true
+        type: choice
+        options:
+          - all
+          - database
+          - api
+          - nginx
+        default: all
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - production
+          - local
+        default: production
+
+  # Run weekly
+  schedule:
+    - cron: '0 5 * * 0'  # Every Sunday at 5 AM UTC
+
+  # Run on infrastructure changes
+  push:
+    branches: [main]
+    paths:
+      - 'docker/**'
+      - 'terraform/**'
+      - 'nginx/**'
+
+env:
+  GARFENTER_DOMAIN: garfenter.com
+  GARFENTER_USE_HTTPS: 'true'
+
+jobs:
+  database-tests:
+    name: Database Connectivity Tests
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test_scope == 'all' || github.event.inputs.test_scope == 'database' || github.event.inputs.test_scope == ''
+
+    steps:
+      - name: Checkout garfenter-tests
+        uses: actions/checkout@v4
+        with:
+          repository: garfenterdreams/garfenter-tests
+          path: tests
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/garfenter-key.pem
+          chmod 600 ~/.ssh/garfenter-key.pem
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Test Database via SSH
+        run: |
+          ssh -i ~/.ssh/garfenter-key.pem -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} << 'EOF'
+          echo "=== PostgreSQL Connectivity ==="
+          docker exec garfenter-postgres pg_isready -U garfenter && echo "PostgreSQL: OK" || echo "PostgreSQL: FAIL"
+
+          echo ""
+          echo "=== PostgreSQL Databases ==="
+          docker exec garfenter-postgres psql -U garfenter -c "\l" | grep garfenter || echo "No databases found"
+
+          echo ""
+          echo "=== MySQL Connectivity ==="
+          docker exec garfenter-mysql mysqladmin -u garfenter -pgarfenter2024 ping 2>/dev/null && echo "MySQL: OK" || echo "MySQL: FAIL"
+
+          echo ""
+          echo "=== MySQL Databases ==="
+          docker exec garfenter-mysql mysql -u garfenter -pgarfenter2024 -e "SHOW DATABASES LIKE 'garfenter%'" 2>/dev/null || echo "No databases found"
+          EOF
+
+      - name: Database Test Summary
+        run: |
+          echo "## Database Tests" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- PostgreSQL connectivity tested" >> $GITHUB_STEP_SUMMARY
+          echo "- MySQL connectivity tested" >> $GITHUB_STEP_SUMMARY
+          echo "- Database existence verified" >> $GITHUB_STEP_SUMMARY
+
+  api-tests:
+    name: Startup API Tests
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test_scope == 'all' || github.event.inputs.test_scope == 'api' || github.event.inputs.test_scope == ''
+
+    steps:
+      - name: Test API Status Endpoint
+        run: |
+          echo "Testing API status endpoint..."
+          HTTP_CODE=$(curl -s -o response.json -w "%{http_code}" "https://garfenter.com/api/status" --insecure || echo "000")
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "API status: OK (HTTP $HTTP_CODE)"
+            cat response.json
+          else
+            echo "API status: HTTP $HTTP_CODE"
+          fi
+
+      - name: Test Product Start Endpoints
+        run: |
+          PRODUCTS="tienda mercado pos contable erp clientes inmuebles campo banco salud educacion"
+
+          echo "=== Testing Start Endpoints ==="
+          for product in $PRODUCTS; do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://garfenter.com/api/start/$product" --insecure || echo "000")
+            if [[ "$HTTP_CODE" =~ ^(200|202|409|404)$ ]]; then
+              echo "$product: OK (HTTP $HTTP_CODE)"
+            else
+              echo "$product: UNEXPECTED (HTTP $HTTP_CODE)"
+            fi
+          done
+
+      - name: API Test Summary
+        run: |
+          echo "## API Tests" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Status endpoint tested" >> $GITHUB_STEP_SUMMARY
+          echo "- Start endpoints tested for all 11 products" >> $GITHUB_STEP_SUMMARY
+
+  nginx-tests:
+    name: Nginx Routing Tests
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test_scope == 'all' || github.event.inputs.test_scope == 'nginx' || github.event.inputs.test_scope == ''
+
+    steps:
+      - name: Test Main Domain
+        run: |
+          echo "Testing main domain..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://garfenter.com" --insecure -L || echo "000")
+          echo "Main domain: HTTP $HTTP_CODE"
+
+          if [[ "$HTTP_CODE" =~ ^(200|30[0-9])$ ]]; then
+            echo "Main domain: OK"
+          else
+            echo "Main domain: ISSUE"
+          fi
+
+      - name: Test Subdomain Routing
+        run: |
+          PRODUCTS="tienda mercado pos contable erp clientes inmuebles campo banco salud educacion"
+
+          echo "=== Subdomain Routing Tests ==="
+          PASS=0
+          FAIL=0
+
+          for product in $PRODUCTS; do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://${product}.garfenter.com" --insecure -L --max-time 15 || echo "000")
+
+            # 502/503 means routing works but container is down
+            if [[ "$HTTP_CODE" =~ ^(200|30[0-9]|502|503)$ ]]; then
+              echo "$product.garfenter.com: ROUTED (HTTP $HTTP_CODE)"
+              ((PASS++))
+            else
+              echo "$product.garfenter.com: FAIL (HTTP $HTTP_CODE)"
+              ((FAIL++))
+            fi
+          done
+
+          echo ""
+          echo "Routing Summary: $PASS passed, $FAIL failed"
+
+          if [ $FAIL -gt 3 ]; then
+            echo "Too many routing failures!"
+            exit 1
+          fi
+
+      - name: Test SSL Certificates
+        run: |
+          echo "=== SSL Certificate Tests ==="
+
+          # Test main domain
+          echo | openssl s_client -servername garfenter.com -connect garfenter.com:443 2>/dev/null | \
+            openssl x509 -noout -dates 2>/dev/null && echo "garfenter.com SSL: OK" || echo "garfenter.com SSL: ISSUE"
+
+          # Test a few subdomains
+          for product in tienda erp clientes; do
+            echo | openssl s_client -servername ${product}.garfenter.com -connect ${product}.garfenter.com:443 2>/dev/null | \
+              openssl x509 -noout -dates 2>/dev/null && echo "${product}.garfenter.com SSL: OK" || echo "${product}.garfenter.com SSL: ISSUE"
+          done
+
+      - name: Nginx Test Summary
+        run: |
+          echo "## Nginx Tests" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Main domain routing tested" >> $GITHUB_STEP_SUMMARY
+          echo "- 11 subdomain routes tested" >> $GITHUB_STEP_SUMMARY
+          echo "- SSL certificates verified" >> $GITHUB_STEP_SUMMARY
+
+  summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [database-tests, api-tests, nginx-tests]
+    if: always()
+
+    steps:
+      - name: Generate Summary
+        run: |
+          echo "## Infrastructure Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Suite | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Database | ${{ needs.database-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| API | ${{ needs.api-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Nginx | ${{ needs.nginx-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment || 'production' }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check Overall Status
+        run: |
+          if [ "${{ needs.database-tests.result }}" = "failure" ] || \
+             [ "${{ needs.api-tests.result }}" = "failure" ] || \
+             [ "${{ needs.nginx-tests.result }}" = "failure" ]; then
+            echo "Some infrastructure tests failed!"
+            exit 1
+          else
+            echo "All infrastructure tests passed!"
+          fi

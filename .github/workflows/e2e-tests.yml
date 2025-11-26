@@ -1,0 +1,187 @@
+name: E2E Tests
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - production
+          - staging
+        default: production
+      browser:
+        description: 'Browser to test'
+        required: true
+        type: choice
+        options:
+          - all
+          - chromium
+          - firefox
+        default: chromium
+      test_suite:
+        description: 'Test suite to run'
+        required: true
+        type: choice
+        options:
+          - all
+          - health
+          - navigation
+        default: all
+
+  # Run after smoke tests pass
+  workflow_run:
+    workflows: ["Smoke Tests"]
+    types:
+      - completed
+    branches: [main]
+
+  # Weekly full suite
+  schedule:
+    - cron: '0 8 * * 1'  # Every Monday at 8 AM UTC
+
+env:
+  BASE_URL: https://garfenter.com
+  ADMIN_EMAIL: admin@garfenter.com
+
+jobs:
+  setup:
+    name: Setup E2E Tests
+    runs-on: ubuntu-latest
+    outputs:
+      browser_matrix: ${{ steps.set-matrix.outputs.browsers }}
+    steps:
+      - name: Set browser matrix
+        id: set-matrix
+        run: |
+          if [ "${{ github.event.inputs.browser }}" = "all" ] || [ -z "${{ github.event.inputs.browser }}" ]; then
+            echo 'browsers=["chromium", "firefox"]' >> $GITHUB_OUTPUT
+          else
+            echo 'browsers=["${{ github.event.inputs.browser }}"]' >> $GITHUB_OUTPUT
+          fi
+
+  e2e-tests:
+    name: E2E Tests (${{ matrix.browser }})
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: ${{ fromJson(needs.setup.outputs.browser_matrix) }}
+
+    steps:
+      - name: Checkout garfenter-tests
+        uses: actions/checkout@v4
+        with:
+          repository: garfenterdreams/garfenter-tests
+          path: garfenter-tests
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: garfenter-tests/e2e/package-lock.json
+
+      - name: Install dependencies
+        working-directory: garfenter-tests/e2e
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: garfenter-tests/e2e
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Set environment
+        run: |
+          if [ "${{ github.event.inputs.environment }}" = "staging" ]; then
+            echo "BASE_URL=https://staging.garfenter.com" >> $GITHUB_ENV
+          else
+            echo "BASE_URL=https://garfenter.com" >> $GITHUB_ENV
+          fi
+
+      - name: Run health check tests
+        if: github.event.inputs.test_suite == 'all' || github.event.inputs.test_suite == 'health' || github.event.inputs.test_suite == ''
+        working-directory: garfenter-tests/e2e
+        run: |
+          npx playwright test tests/health/ \
+            --project=${{ matrix.browser }} \
+            --reporter=html \
+            --reporter=json \
+            --output=results/health
+        env:
+          BASE_URL: ${{ env.BASE_URL }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+
+      - name: Run navigation tests
+        if: github.event.inputs.test_suite == 'all' || github.event.inputs.test_suite == 'navigation' || github.event.inputs.test_suite == ''
+        working-directory: garfenter-tests/e2e
+        run: |
+          npx playwright test tests/navigation/ \
+            --project=${{ matrix.browser }} \
+            --reporter=html \
+            --reporter=json \
+            --output=results/navigation
+        env:
+          BASE_URL: ${{ env.BASE_URL }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-results-${{ matrix.browser }}
+          path: |
+            garfenter-tests/e2e/results/
+            garfenter-tests/e2e/playwright-report/
+          retention-days: 14
+
+      - name: Upload traces on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-traces-${{ matrix.browser }}
+          path: garfenter-tests/e2e/test-results/
+          retention-days: 7
+
+  report:
+    name: Generate Report
+    needs: e2e-tests
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate summary
+        run: |
+          echo "## E2E Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment || 'production' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Browser(s):** ${{ github.event.inputs.browser || 'all' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Test Suite:** ${{ github.event.inputs.test_suite || 'all' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "Test results and traces are available in the workflow artifacts." >> $GITHUB_STEP_SUMMARY
+
+      - name: Post to Slack (on failure)
+        if: failure() && vars.SLACK_WEBHOOK_URL
+        run: |
+          curl -X POST ${{ vars.SLACK_WEBHOOK_URL }} \
+            -H 'Content-type: application/json' \
+            --data '{
+              "text": "E2E Tests Failed!",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*E2E Tests Failed* on `${{ github.event.inputs.environment || 'production' }}`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Results>"
+                  }
+                }
+              ]
+            }'

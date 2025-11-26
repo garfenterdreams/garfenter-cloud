@@ -1,0 +1,64 @@
+# Garfenter Services Suite (Group C)
+# Fineract, HMIS
+# ~1.5GB RAM total
+
+version: '3.8'
+
+services:
+  # ============================================
+  # Apache Fineract - Core Banking (Garfenter Banco)
+  # ============================================
+  garfenter-banco:
+    image: apache/fineract:latest
+    container_name: garfenter-banco
+    restart: unless-stopped
+    environment:
+      FINERACT_HIKARI_DRIVER_SOURCE_CLASS_NAME: com.mysql.cj.jdbc.Driver
+      FINERACT_HIKARI_JDBC_URL: jdbc:mysql://garfenter-mysql:3306/garfenter_banco
+      FINERACT_HIKARI_USERNAME: garfenter
+      FINERACT_HIKARI_PASSWORD: ${MYSQL_PASSWORD}
+      FINERACT_DEFAULT_TENANTDB_HOSTNAME: garfenter-mysql
+      FINERACT_DEFAULT_TENANTDB_PORT: 3306
+      FINERACT_DEFAULT_TENANTDB_UID: garfenter
+      FINERACT_DEFAULT_TENANTDB_PWD: ${MYSQL_PASSWORD}
+      JAVA_OPTS: -Xmx512m
+    ports:
+      - "8443:8443"
+    networks:
+      - garfenter-network
+    depends_on:
+      - garfenter-mysql
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  # ============================================
+  # HMIS - Healthcare (Garfenter Salud)
+  # ============================================
+  garfenter-salud:
+    image: hmis/hmis:latest
+    container_name: garfenter-salud
+    restart: unless-stopped
+    environment:
+      DB_HOST: garfenter-mysql
+      DB_PORT: 3306
+      DB_DATABASE: garfenter_salud
+      DB_USERNAME: garfenter
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      APP_URL: http://localhost:8084
+      APP_LOCALE: es
+    ports:
+      - "8084:80"
+    networks:
+      - garfenter-network
+    depends_on:
+      - garfenter-mysql
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+networks:
+  garfenter-network:
+    external: true

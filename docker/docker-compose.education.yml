@@ -1,0 +1,50 @@
+# Garfenter Education Suite (Group D)
+# Canvas LMS - ON-DEMAND ONLY (high memory requirements)
+# ~2GB RAM total
+
+version: '3.8'
+
+services:
+  # ============================================
+  # Canvas LMS - Education (Garfenter Educación)
+  # NOTE: Resource-heavy, run only when needed
+  # ============================================
+  garfenter-educacion:
+    image: instructure/canvas-lms:stable
+    container_name: garfenter-educacion
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: garfenter-postgres
+      POSTGRES_USER: garfenter
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: garfenter_educacion
+      REDIS_URL: redis://garfenter-redis:6379/5
+      CANVAS_LMS_ADMIN_EMAIL: admin@garfenter.com
+      CANVAS_LMS_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      CANVAS_LMS_ACCOUNT_NAME: Garfenter Educación
+      RAILS_ENV: production
+      CANVAS_LOCALE: es
+    ports:
+      - "3003:3000"
+    volumes:
+      - canvas-data:/var/canvas/files
+      - canvas-tmp:/var/canvas/tmp
+    networks:
+      - garfenter-network
+    depends_on:
+      - garfenter-postgres
+      - garfenter-redis
+    deploy:
+      resources:
+        limits:
+          memory: 2048M
+        reservations:
+          memory: 1024M
+
+networks:
+  garfenter-network:
+    external: true
+
+volumes:
+  canvas-data:
+  canvas-tmp:
