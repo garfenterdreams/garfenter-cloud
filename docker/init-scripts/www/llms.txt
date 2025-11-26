@@ -1,0 +1,35 @@
+# Garfenter Tech
+> Software empresarial profesional para negocios en Guatemala y Latinoamérica
+
+## Descripción
+Garfenter Tech ofrece soluciones de software empresarial para diversos sectores: comercio, finanzas, salud, educación, agricultura y más. Nuestras plataformas están diseñadas para empresas que buscan digitalizar sus operaciones con tecnología probada mundialmente.
+
+## Productos
+
+### Comercio
+- **Tienda** (tienda.garfenter.com): Plataforma de e-commerce profesional con API GraphQL, multi-moneda y arquitectura headless.
+- **POS** (pos.garfenter.com): Sistema de punto de venta para tiendas, restaurantes y negocios minoristas.
+- **Mercado** (mercado.garfenter.com): Marketplace multi-vendedor para crear tu propio mercado digital. (Próximamente)
+
+### Empresa
+- **Contable** (contable.garfenter.com): Software de contabilidad con facturación, reportes financieros e integración bancaria.
+- **Clientes** (clientes.garfenter.com): CRM moderno con pipeline visual, automatización y API completa.
+- **ERP** (erp.garfenter.com): Sistema ERP completo para gestión empresarial integral. (Próximamente)
+
+### Servicios
+- **Inmuebles** (inmuebles.garfenter.com): Gestión de propiedades, condominios y bienes raíces.
+- **Campo** (campo.garfenter.com): Gestión agrícola con mapas GPS, registro de cultivos y app móvil offline.
+- **Banco** (banco.garfenter.com): Plataforma de microfinanzas y core banking para cooperativas e instituciones financieras.
+
+### Especializado
+- **Salud** (salud.garfenter.com): Sistema hospitalario con gestión de pacientes, citas, laboratorio y farmacia.
+- **Delivery** (delivery.garfenter.com): Plataforma de entregas con app para clientes, repartidores y restaurantes.
+- **Educación** (educacion.garfenter.com): LMS para universidades, colegios y capacitación corporativa.
+
+## Información Técnica
+- Sitio web: https://garfenter.com
+- Demos disponibles en cada subdominio de producto
+- Tecnologías: React, Node.js, Python, PostgreSQL, GraphQL
+
+## Región
+Guatemala y Latinoamérica

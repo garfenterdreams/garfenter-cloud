@@ -37,13 +37,21 @@ JWT_SECRET=$JWT_SECRET
 DOMAIN_NAME=$DOMAIN
 EOF
 
-# Download configuration files from GitHub
-curl -sL "$REPO/docker-compose.startup.yml" -o $GH/docker-compose.yml
-curl -sL "$REPO/postgres/00-create-databases.sql" -o $GH/init-postgres.sql
-curl -sL "$REPO/mysql/00-create-databases.sql" -o $GH/init-mysql.sql
-curl -sL "$REPO/nginx.conf" -o $GH/nginx/nginx.conf
-curl -sL "$REPO/startup-api.py" -o $GH/startup/api.py
-curl -sL "$REPO/landing.html" -o $GH/www/index.html
+# Clone configuration from GitHub
+git clone --depth 1 https://github.com/garfenterdreams/garfenter-cloud.git /tmp/garfenter-cloud
+cp /tmp/garfenter-cloud/docker/init-scripts/docker-compose.startup.yml $GH/docker-compose.yml
+cp /tmp/garfenter-cloud/docker/init-scripts/postgres/00-create-databases.sql $GH/init-postgres.sql
+cp /tmp/garfenter-cloud/docker/init-scripts/mysql/00-create-databases.sql $GH/init-mysql.sql
+cp /tmp/garfenter-cloud/docker/init-scripts/nginx.conf $GH/nginx/nginx.conf
+cp /tmp/garfenter-cloud/docker/init-scripts/startup-api.py $GH/startup/api.py
+rm -rf /tmp/garfenter-cloud
+
+# Placeholder for www - real landing deployed by GitHub Actions from garfenterdreams/landing
+cat > $GH/www/index.html << 'LANDING'
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="refresh" content="30">
+<title>Garfenter</title><style>body{background:#1a1a2e;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;font-family:system-ui}</style>
+</head><body><div style="text-align:center"><h1>Garfenter</h1><p>Deploying landing page...</p></div></body></html>
+LANDING
 
 # Generate Nginx config
 cat > $GH/nginx/conf.d/default.conf << 'NGINX'
