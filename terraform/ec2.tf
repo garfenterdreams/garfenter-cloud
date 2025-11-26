@@ -16,6 +16,7 @@ resource "aws_instance" "garfenter_demo" {
 
   key_name               = var.ssh_key_name
   vpc_security_group_ids = [aws_security_group.garfenter.id]
+  iam_instance_profile   = aws_iam_instance_profile.ec2_ecr.name
 
   root_block_device {
     volume_size           = var.root_volume_size
@@ -30,6 +31,8 @@ resource "aws_instance" "garfenter_demo" {
     keycloak_admin_password = var.keycloak_admin_password
     jwt_secret              = var.jwt_secret
     domain_name             = var.domain_name
+    ecr_registry            = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
+    image_tags              = var.image_tags
   }))
 
   tags = {

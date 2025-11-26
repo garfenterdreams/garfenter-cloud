@@ -115,3 +115,39 @@ variable "jwt_secret" {
   type        = string
   sensitive   = true
 }
+
+# ============================================
+# ECR Image Tags
+# GitHub Actions pushes images, Terraform deploys specific versions
+# ============================================
+variable "image_tags" {
+  description = "Docker image tags for each product (set by CI/CD pipeline)"
+  type = object({
+    landing   = string
+    tienda    = string
+    mercado   = string
+    pos       = string
+    contable  = string
+    erp       = string
+    clientes  = string
+    inmuebles = string
+    campo     = string
+    banco     = string
+    salud     = string
+    educacion = string
+  })
+  default = {
+    landing   = "latest"
+    tienda    = "latest"
+    mercado   = "latest"
+    pos       = "latest"
+    contable  = "latest"
+    erp       = "latest"
+    clientes  = "latest"
+    inmuebles = "latest"
+    campo     = "latest"
+    banco     = "latest"
+    salud     = "latest"
+    educacion = "latest"
+  }
+}

@@ -1,0 +1,20 @@
+# Deploy workflow template for Garfenter products
+# Copy this to each product repo's .github/workflows/deploy.yml
+# Replace PRODUCT_NAME with the actual product name (e.g., tienda, erp)
+
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    uses: garfenterdreams/garfenter-cloud/.github/workflows/ecr-push.yml@main
+    with:
+      product_name: 'PRODUCT_NAME'  # Replace with actual product name
+      # dockerfile_path: 'Dockerfile'  # Uncomment to customize
+      # build_context: '.'  # Uncomment to customize
+    secrets: inherit

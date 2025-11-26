@@ -1,3 +1,7 @@
+# Garfenter Cloud Platform - Docker Compose
+# Core services always running, products started on-demand via startup API
+# Images pulled from ECR - tags controlled by Terraform
+
 services:
   postgres:
     image: postgres:15-alpine
@@ -46,14 +50,13 @@ services:
     networks: [garfenter-network]
 
   nginx:
-    image: nginx:alpine
+    image: ${ECR_REGISTRY}/garfenter/landing:${LANDING_TAG:-latest}
     container_name: garfenter-nginx
     restart: unless-stopped
     ports: ["80:80"]
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./www:/var/www/html:ro
     networks: [garfenter-network]
     depends_on: [postgres, mysql]
 
@@ -64,6 +67,20 @@ services:
     working_dir: /app
     command: sh -c "pip install --no-cache-dir flask docker && python api.py"
     env_file: .env
+    environment:
+      ECR_REGISTRY: ${ECR_REGISTRY}
+      # Image tags for on-demand product startup
+      TIENDA_TAG: ${TIENDA_TAG:-latest}
+      MERCADO_TAG: ${MERCADO_TAG:-latest}
+      POS_TAG: ${POS_TAG:-latest}
+      CONTABLE_TAG: ${CONTABLE_TAG:-latest}
+      ERP_TAG: ${ERP_TAG:-latest}
+      CLIENTES_TAG: ${CLIENTES_TAG:-latest}
+      INMUEBLES_TAG: ${INMUEBLES_TAG:-latest}
+      CAMPO_TAG: ${CAMPO_TAG:-latest}
+      BANCO_TAG: ${BANCO_TAG:-latest}
+      SALUD_TAG: ${SALUD_TAG:-latest}
+      EDUCACION_TAG: ${EDUCACION_TAG:-latest}
     volumes:
       - ./startup:/app
       - /var/run/docker.sock:/var/run/docker.sock

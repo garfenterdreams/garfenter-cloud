@@ -43,3 +43,23 @@ output "estimated_monthly_cost" {
   description = "Estimated monthly cost"
   value       = "~$35-50/month (EC2 t3.medium: $30 + EBS: $4 + EIP: $3.65 + Transfer: ~$0.50)"
 }
+
+# ============================================
+# ECR Outputs
+# ============================================
+output "ecr_registry_url" {
+  description = "ECR registry URL (without repo name)"
+  value       = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
+}
+
+output "ecr_repositories" {
+  description = "ECR repository URLs for each product"
+  value = {
+    for key, repo in aws_ecr_repository.products : key => repo.repository_url
+  }
+}
+
+output "github_actions_role_arn" {
+  description = "IAM Role ARN for GitHub Actions to push to ECR"
+  value       = aws_iam_role.github_actions.arn
+}
