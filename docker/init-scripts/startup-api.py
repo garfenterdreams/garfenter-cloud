@@ -86,5 +86,54 @@ def stop_one(p):
 def health():
     return "OK"
 
+# Deploy endpoints for pulling latest images and restarting containers
+@app.route("/api/deploy/landing", methods=["POST"])
+def deploy_landing():
+    """Pull latest landing image from ECR and restart nginx container"""
+    try:
+        tag = os.environ.get("LANDING_TAG", "latest")
+        image = f"{ECR}/garfenter/landing:{tag}" if ECR else "nginx:alpine"
+
+        # Pull latest image
+        client.images.pull(image)
+
+        # Get current nginx container
+        try:
+            nginx = client.containers.get("garfenter-nginx")
+            # Stop and remove current container
+            nginx.stop(timeout=10)
+            nginx.remove()
+        except:
+            pass
+
+        # Start new container with fresh image
+        client.containers.run(
+            image,
+            name="garfenter-nginx",
+            network="garfenter-network",
+            ports={"80/tcp": 80},
+            volumes={
+                "/home/ec2-user/garfenter/nginx/nginx.conf": {"bind": "/etc/nginx/nginx.conf", "mode": "ro"},
+                "/home/ec2-user/garfenter/nginx/conf.d": {"bind": "/etc/nginx/conf.d", "mode": "ro"}
+            },
+            detach=True,
+            restart_policy={"Name": "unless-stopped"}
+        )
+        return jsonify({"status": "deployed", "image": image})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/deploy/<product>", methods=["POST"])
+def deploy_product(product):
+    """Pull latest product image from ECR (useful for updating running products)"""
+    if product not in P:
+        return jsonify({"error": "Unknown product"}), 404
+    try:
+        # Pull latest image
+        client.images.pull(P[product]["i"])
+        return jsonify({"status": "pulled", "image": P[product]["i"]})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
