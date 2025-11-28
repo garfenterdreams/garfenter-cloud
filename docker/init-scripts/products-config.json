@@ -1,0 +1,344 @@
+{
+  "$schema": "./products-config.schema.json",
+  "_comment": "Product configuration for Garfenter Cloud - shared between demo and portal",
+  "_version": "1.0.0",
+
+  "defaults": {
+    "memory_limit": "512m",
+    "network": "garfenter-network",
+    "restart_policy": "unless-stopped"
+  },
+
+  "secrets": {
+    "_comment": "These are injected at runtime from environment variables",
+    "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD}",
+    "MYSQL_PASSWORD": "${MYSQL_PASSWORD}",
+    "JWT_SECRET": "${JWT_SECRET}",
+    "CRYPTO_SECRET": "${CRYPTO_SECRET:-${JWT_SECRET}}",
+    "ECR_REGISTRY": "${ECR_REGISTRY}"
+  },
+
+  "databases": {
+    "postgres": {
+      "host": "garfenter-postgres",
+      "port": 5432,
+      "user": "garfenter"
+    },
+    "mysql": {
+      "host": "garfenter-mysql",
+      "port": 3306,
+      "user": "garfenter"
+    }
+  },
+
+  "products": {
+    "tienda": {
+      "name": "Tienda",
+      "description": "E-commerce platform",
+      "base_image": "garfenter/tienda:latest",
+      "container_name": "garfenter-tienda",
+      "port": 8000,
+      "database": "postgresql",
+      "database_name": "garfenter_tienda",
+      "environment": {
+        "DATABASE_URL": "postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}",
+        "SECRET_KEY": "${JWT_SECRET}",
+        "ALLOWED_HOSTS": "*",
+        "DEBUG": "False",
+        "REDIS_URL": "redis://garfenter-redis:6379/0",
+        "CELERY_BROKER_URL": "redis://garfenter-redis:6379/1",
+        "DEFAULT_FROM_EMAIL": "noreply@garfenter.com",
+        "ENABLE_ACCOUNT_CONFIRMATION_BY_EMAIL": "False"
+      },
+      "healthcheck": {
+        "test": ["CMD", "curl", "-f", "http://localhost:8000/health/"],
+        "interval": "30s",
+        "timeout": "10s",
+        "retries": 3
+      }
+    },
+
+    "mercado": {
+      "name": "Mercado",
+      "description": "Multivendor marketplace",
+      "base_image": "spurtcommerce/spurtcommerce:latest",
+      "container_name": "garfenter-mercado",
+      "port": 8000,
+      "database": "mysql",
+      "database_name": "garfenter_mercado",
+      "environment": {
+        "TYPEORM_CONNECTION": "mysql",
+        "TYPEORM_HOST": "${DB_HOST}",
+        "TYPEORM_PORT": "${DB_PORT}",
+        "TYPEORM_USERNAME": "${DB_USER}",
+        "TYPEORM_PASSWORD": "${DB_PASSWORD}",
+        "TYPEORM_DATABASE": "${DB_NAME}",
+        "TYPEORM_SYNCHRONIZE": "false",
+        "TYPEORM_LOGGING": "",
+        "TYPEORM_LOGGER": "advanced-console",
+        "TYPEORM_MIGRATIONS": "src/database/migrations/**/*.ts",
+        "TYPEORM_MIGRATIONS_DIR": "src/database/migrations",
+        "TYPEORM_ENTITIES": "src/api/models/**/*.ts,src/plugin-manager/models/**/*.ts",
+        "TYPEORM_ENTITIES_DIR": "src/api/models",
+        "TYPEORM_SEEDING_FACTORIES": "src/database/factories/**/*.ts",
+        "TYPEORM_SEEDING_SEEDS": "src/database/seeds/**/*.ts",
+        "CONTROLLERS": "src/api/controllers/**/*Controller.ts",
+        "MIDDLEWARES": "src/api/middlewares/**/*Middleware.ts",
+        "INTERCEPTORS": "src/api/interceptors/**/*Interceptor.ts",
+        "SUBSCRIBERS": "src/api/subscribers/**/*Subscriber.ts",
+        "RESOLVERS": "src/api/resolvers/**/*Resolver.ts",
+        "APP_NAME": "garfenter-mercado",
+        "APP_SCHEMA": "http",
+        "APP_HOST": "0.0.0.0",
+        "APP_PORT": "8000",
+        "APP_ROUTE_PREFIX": "/api",
+        "APP_BANNER": "true",
+        "LOG_LEVEL": "debug",
+        "LOG_OUTPUT": "dev",
+        "IMAGE_SERVER": "http://localhost:8000",
+        "IMAGE_URL": "http://localhost:8000",
+        "IMAGE_UPLOAD_SIZE": "2097152",
+        "STORE_URL": "http://localhost:8000/api",
+        "BASE_URL": "http://localhost:8000/api",
+        "CANCEL_URL": "http://localhost:8000/api",
+        "STORE_REDIRECT_URL": "http://localhost",
+        "ADMIN_REDIRECT_URL": "http://localhost/admin",
+        "VENDOR_REDIRECT_URL": "http://localhost/vendor",
+        "APIDOC_ENABLED": "true",
+        "APIDOC_ROUTE": "/apidoc",
+        "MONITOR_ENABLED": "true",
+        "MONITOR_ROUTE": "/monitor",
+        "MONITOR_USERNAME": "admin",
+        "MONITOR_PASSWORD": "garfenter123",
+        "SWAGGER_ENABLED": "true",
+        "SWAGGER_ROUTE": "/swagger",
+        "SWAGGER_FILE": "api/swagger.json",
+        "SWAGGER_USERNAME": "admin",
+        "SWAGGER_PASSWORD": "garfenter123",
+        "JWT_SECRET": "${JWT_SECRET}",
+        "CRYPTO_SECRET": "${CRYPTO_SECRET}",
+        "AVAILABLE_IMAGE_TYPES": "PNG,png,jpg,jpeg,svg",
+        "AVAILABLE_ALLOW_TYPES": "PDF,pdf,xlx,xlsx,doc,docx",
+        "LOGIN_ATTEPMTS_COUNT": "5",
+        "LOGIN_ATTEPMTS_MINUTES": "30",
+        "VERIFICATION_CODE_EXPIRATION_TIME": "00:10:00",
+        "MFA_TEMP_TOKEN_EXPIRY": "120m",
+        "MFA_TEMP_TOKEN_SECRET": "${JWT_SECRET}",
+        "SOCKET_PORT": "4001",
+        "PUPPETEER_SKIP_DOWNLOAD": "true",
+        "ADMIN_FORGET_PASSWORD_URL": "http://localhost/admin/#/set-password/",
+        "VENDOR_FORGET_PASSWORD_URL": "http://localhost/vendor/#/set-password/",
+        "PRODUCT_REDIRECT_URL": "http://localhost/products/productdetails/",
+        "CATEGORY_REDIRECT_URL": "http://localhost/products/",
+        "PLUGIN_HOME_REDIRECT_URL": "http://localhost/home",
+        "STORE_FORGET_PASSWORD_URL": "http://localhost/store/forgot-password",
+        "FORGET_PASSWORD_URL": "http://localhost/forgot-password",
+        "USER_NAME": "",
+        "SENDER_NAME": "",
+        "API_KEY": "",
+        "HOST_NAME": "",
+        "SMS_TYPE": "",
+        "PEID": "",
+        "TEMPLATE_ID": "",
+        "JWT_EXPIRY_TIME": "30d",
+        "VENDOR_MAIL_VERIFY_URL": "http://localhost/vendor/verify-email",
+        "KYC_MANDATE": "0",
+        "PAYMENT_SUCCESS_REDIRECT_URL": "http://localhost/payment/success",
+        "PAYMENT_FAILURE_REDIRECT_URL": "http://localhost/payment/failure",
+        "MAIL_HOST": "smtp.mailtrap.io",
+        "MAIL_PORT": "587",
+        "MAIL_SECURE": "false",
+        "MAIL_FROM": "noreply@garfenter.com",
+        "MAIL_USERNAME": "",
+        "MAIL_PASSWORD": "",
+        "AWS_ACCESS_KEY_ID": "",
+        "AWS_SECRET_ACCESS_KEY": "",
+        "AWS_DEFAULT_REGION": "us-east-1",
+        "AWS_BUCKET": "",
+        "GCP_CDN_FILEPATH": "",
+        "GCP_CDN_PROJECT_ID": "",
+        "GCP_CDN_BUCKET": ""
+      }
+    },
+
+    "pos": {
+      "name": "POS",
+      "description": "Point of Sale system",
+      "base_image": "opensourcepos/opensourcepos:latest",
+      "container_name": "garfenter-pos",
+      "port": 80,
+      "database": "mysql",
+      "database_name": "garfenter_pos",
+      "environment": {
+        "DB_HOST": "${DB_HOST}",
+        "DB_NAME": "${DB_NAME}",
+        "DB_USER": "${DB_USER}",
+        "DB_PASS": "${DB_PASSWORD}",
+        "PHP_TIMEZONE": "America/Mexico_City",
+        "FORCE_HTTPS": "0"
+      }
+    },
+
+    "contable": {
+      "name": "Contable",
+      "description": "Accounting software",
+      "base_image": "garfenter/contable:latest",
+      "container_name": "garfenter-contable",
+      "port": 3000,
+      "database": "postgresql",
+      "database_name": "garfenter_contable",
+      "environment": {
+        "NODE_ENV": "production",
+        "BASE_URL": "https://contable.garfenter.com",
+        "JWT_SECRET": "${JWT_SECRET}",
+        "DB_HOST": "garfenter-postgres",
+        "DB_PORT": "5432",
+        "DB_USER": "${DB_USER}",
+        "DB_PASSWORD": "${DB_PASSWORD}",
+        "DB_CHARSET": "utf8",
+        "SYSTEM_DB_NAME": "garfenter_contable",
+        "TENANT_DB_NAME_PERFIX": "garfenter_tenant_",
+        "MONGODB_DATABASE_URL": "mongodb://garfenter-mongo:27017/garfenter_contable",
+        "REDIS_HOST": "garfenter-redis",
+        "REDIS_PORT": "6379",
+        "MAIL_HOST": "",
+        "MAIL_USERNAME": "",
+        "MAIL_PASSWORD": "",
+        "MAIL_PORT": "587",
+        "MAIL_SECURE": "false",
+        "MAIL_FROM_NAME": "Garfenter Contable",
+        "MAIL_FROM_ADDRESS": "contable@garfenter.com",
+        "SIGNUP_DISABLED": "false",
+        "DEFAULT_LOCALE": "es",
+        "DEFAULT_CURRENCY": "GTQ",
+        "DEFAULT_TIMEZONE": "America/Guatemala"
+      }
+    },
+
+    "erp": {
+      "name": "ERP",
+      "description": "Enterprise Resource Planning",
+      "base_image": "garfenter/erp:latest",
+      "container_name": "garfenter-erp",
+      "port": 8069,
+      "database": "postgresql",
+      "database_name": "garfenter_erp",
+      "environment": {
+        "HOST": "${DB_HOST}",
+        "USER": "${DB_USER}",
+        "PASSWORD": "${DB_PASSWORD}",
+        "DB_PORT": "${DB_PORT}"
+      }
+    },
+
+    "clientes": {
+      "name": "Clientes",
+      "description": "CRM - Customer Relationship Management",
+      "base_image": "twentycrm/twenty:latest",
+      "container_name": "garfenter-clientes",
+      "port": 3000,
+      "database": "postgresql",
+      "database_name": "garfenter_clientes",
+      "environment": {
+        "PG_DATABASE_URL": "postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}",
+        "ACCESS_TOKEN_SECRET": "${JWT_SECRET}",
+        "LOGIN_TOKEN_SECRET": "${JWT_SECRET}",
+        "REFRESH_TOKEN_SECRET": "${JWT_SECRET}",
+        "SERVER_URL": "http://localhost:3000",
+        "FRONT_BASE_URL": "http://localhost:3000",
+        "PORT": "3000"
+      }
+    },
+
+    "inmuebles": {
+      "name": "Inmuebles",
+      "description": "Property Management",
+      "base_image": "condo-app/condo:latest",
+      "container_name": "garfenter-inmuebles",
+      "port": 3000,
+      "database": "postgresql",
+      "database_name": "garfenter_inmuebles",
+      "environment": {
+        "DATABASE_URL": "postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}",
+        "JWT_SECRET": "${JWT_SECRET}",
+        "NODE_ENV": "production",
+        "PORT": "3000"
+      }
+    },
+
+    "campo": {
+      "name": "Campo",
+      "description": "Farm Management System",
+      "base_image": "farmos/farmos:3.x",
+      "container_name": "garfenter-campo",
+      "port": 80,
+      "database": "postgresql",
+      "database_name": "garfenter_campo",
+      "environment": {
+        "FARMOS_DB_HOST": "${DB_HOST}",
+        "FARMOS_DB_PORT": "${DB_PORT}",
+        "FARMOS_DB_USER": "${DB_USER}",
+        "FARMOS_DB_PASS": "${DB_PASSWORD}",
+        "FARMOS_DB_NAME": "${DB_NAME}"
+      }
+    },
+
+    "banco": {
+      "name": "Banco",
+      "description": "Banking/Fintech Platform",
+      "base_image": "apache/fineract:latest",
+      "container_name": "garfenter-banco",
+      "port": 8443,
+      "database": "mysql",
+      "database_name": "garfenter_banco",
+      "environment": {
+        "FINERACT_HIKARI_JDBC_URL": "jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}",
+        "FINERACT_HIKARI_USERNAME": "${DB_USER}",
+        "FINERACT_HIKARI_PASSWORD": "${DB_PASSWORD}",
+        "FINERACT_DEFAULT_TENANTDB_HOSTNAME": "${DB_HOST}",
+        "FINERACT_DEFAULT_TENANTDB_PORT": "${DB_PORT}",
+        "FINERACT_DEFAULT_TENANTDB_UID": "${DB_USER}",
+        "FINERACT_DEFAULT_TENANTDB_PWD": "${DB_PASSWORD}"
+      }
+    },
+
+    "salud": {
+      "name": "Salud",
+      "description": "Hospital Management Information System",
+      "base_image": "hmis/hmis:latest",
+      "container_name": "garfenter-salud",
+      "port": 80,
+      "database": "mysql",
+      "database_name": "garfenter_salud",
+      "environment": {
+        "DB_HOST": "${DB_HOST}",
+        "DB_PORT": "${DB_PORT}",
+        "DB_DATABASE": "${DB_NAME}",
+        "DB_USERNAME": "${DB_USER}",
+        "DB_PASSWORD": "${DB_PASSWORD}",
+        "APP_KEY": "base64:${JWT_SECRET}",
+        "APP_ENV": "production",
+        "APP_DEBUG": "false"
+      }
+    },
+
+    "educacion": {
+      "name": "Educacion",
+      "description": "Learning Management System",
+      "base_image": "instructure/canvas-lms:stable",
+      "container_name": "garfenter-educacion",
+      "port": 3000,
+      "database": "postgresql",
+      "database_name": "garfenter_educacion",
+      "environment": {
+        "POSTGRES_HOST": "${DB_HOST}",
+        "POSTGRES_PORT": "${DB_PORT}",
+        "POSTGRES_USER": "${DB_USER}",
+        "POSTGRES_PASSWORD": "${DB_PASSWORD}",
+        "POSTGRES_DB": "${DB_NAME}",
+        "RAILS_ENV": "production",
+        "SECRET_KEY_BASE": "${JWT_SECRET}"
+      }
+    }
+  }
+}

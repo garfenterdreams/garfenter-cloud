@@ -49,6 +49,19 @@ services:
     command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
     networks: [garfenter-network]
 
+  mongo:
+    image: mongo:7-jammy
+    container_name: garfenter-mongo
+    restart: unless-stopped
+    volumes:
+      - ./data/mongo:/data/db
+    networks: [garfenter-network]
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   nginx:
     image: ${ECR_REGISTRY}/garfenter/landing:${LANDING_TAG:-latest}
     container_name: garfenter-nginx
@@ -69,6 +82,12 @@ services:
     env_file: .env
     environment:
       ECR_REGISTRY: ${ECR_REGISTRY}
+      CONFIG_PATH: /app/products-config.json
+      # Core secrets for product startup
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      CRYPTO_SECRET: ${CRYPTO_SECRET:-${JWT_SECRET}}
       # Image tags for on-demand product startup
       TIENDA_TAG: ${TIENDA_TAG:-latest}
       MERCADO_TAG: ${MERCADO_TAG:-latest}
@@ -83,8 +102,10 @@ services:
       EDUCACION_TAG: ${EDUCACION_TAG:-latest}
     volumes:
       - ./startup:/app
+      - ./products-config.json:/app/products-config.json:ro
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [garfenter-network]
+    depends_on: [postgres, mysql, redis, mongo]
 
 networks:
   garfenter-network:

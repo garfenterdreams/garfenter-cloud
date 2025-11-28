@@ -43,7 +43,7 @@ fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /
 echo '/swapfile swap swap defaults 0 0' >> /etc/fstab
 
 # Create directories
-mkdir -p $GH/{nginx/conf.d,startup,data/postgres,data/mysql}
+mkdir -p $GH/{nginx/conf.d,startup,data/postgres,data/mysql,data/mongo}
 
 # Authenticate with ECR (uses instance profile)
 echo "=== Authenticating with ECR ==="
